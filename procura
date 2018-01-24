@@ -1,0 +1,4 @@
+#!/bin/bash
+#
+# Procura hosts no /etc/hosts
+grep -i $1 /etc/hosts

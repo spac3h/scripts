@@ -1,0 +1,2 @@
+#!/bin/bash
+ssh -R 8118:localhost:8118 root@$1

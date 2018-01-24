@@ -1,0 +1,2 @@
+#!/bin/bash
+sshpass -p '*********' sftp -P8000 amaIT@repositorio.ama.pt

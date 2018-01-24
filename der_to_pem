@@ -1,0 +1,16 @@
+#!/bin/bash
+datetoday=`date +"_%m%d%Y"`
+for line in *.zip;do
+	unzip $line
+done
+
+rm ca_ecce_001.crt ecraizestado.crt
+
+for file in *.crt;do
+	location=${file%%.crt}
+	outfile=${file%%.crt}$datetoday.pem
+	openssl x509 -inform der -in $file -out $outfile
+	rm $file
+	scp $outfile root@fe01prdcrt:/opt/certificados/$location/
+done
+

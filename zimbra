@@ -1,0 +1,121 @@
+#!/bin/bash
+
+echo "Transfer Mailboxes v.0.1"
+echo "RUN AS ZIMBRA USER!"
+
+echo -n "Conta de Email a Migrar: "; read ACCOUNT1
+zimbraMailHost=`zmprov -l ga $ACCOUNT1 | grep zimbraMailHost`
+test=${zimbraMailHost:0:14}
+if [ "$test" != "zimbraMailHost" ]; then
+echo "Conta $ACCOUNT1 não existe!"
+exit 255;
+fi
+
+SERVER1=${zimbraMailHost:16}
+echo "Servidor de origem: $SERVER1"
+
+echo -n "Digite o Servidor de destino: "; read SERVER2
+if [ $SERVER1 == $SERVER2 ]; then
+echo "O servidor de origem e destino pode ser o mesmo!"
+exit 255;
+fi
+
+echo -n "Introduza um diretorio para a localização dos dados: "; read TEMPDIR
+if [ ! -d $TEMPDIR ]; then
+echo "Diretorio $TEMPDIR encontrado!"
+exit 255;
+fi
+
+# Criar nova conta
+echo "Criando conta temporaria no servidor $SERVER2..."
+TEMPACCOUNT="temp_$ACCOUNT1"
+
+# Compiando configurações
+echo "A copiar configs da conta antiga..."
+
+NAMA_FILE="$TEMPDIR/zcs-acc-add.zmp"
+LDIF_FILE="$TEMPDIR/zcs-acc-mod.ldif"
+
+rm -f $NAMA_FILE
+rm -f $LDIF_FILE
+
+touch $NAMA_FILE
+touch $LDIF_FILE
+
+NAME=`echo $ACCOUNT1`;
+DOMAIN=`echo $ACCOUNT1 | awk -F@ '{print $2}'`;
+ACCOUNT=`echo $ACCOUNT1 | awk -F@ '{print $1}'`;
+ACC=`echo $ACCOUNT1 | cut -d '.' -f1`
+
+ZIMBRA_LDAP_PASSWORD=`zmlocalconfig -s zimbra_ldap_password | cut -d ' ' -f3`
+LDAP_MASTER_URL="ldapi:///"
+
+OBJECT="(&(objectClass=zimbraAccount)(mail=$NAME))"
+dn=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep dn:`
+displayName=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep displayName: | cut -d ':' -f2 | sed 's/^ *//g' | sed 's/ *$//g'`
+givenName=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep givenName: | cut -d ':' -f2 | sed 's/^ *//g' | sed 's/ *$//g'`
+#userPassword=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep userPassword: | cut -d ':' -f3 | sed 's/^ *//g' | sed 's/ *$//g'`
+userPassword=`zmprov -l ga $ACCOUNT1 userPassword | grep userPassword | sed 's/userPassword: //'`
+cn=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep cn: | cut -d ':' -f2 | sed 's/^ *//g' | sed 's/ *$//g'`
+initials=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep initials: | cut -d ':' -f2 | sed 's/^ *//g' | sed 's/ *$//g'`
+sn=`/opt/zimbra/bin/ldapsearch -H $LDAP_MASTER_URL -w $ZIMBRA_LDAP_PASSWORD -D uid=zimbra,cn=admins,cn=zimbra -x $OBJECT | grep sn: | cut -d ':' -f2 | sed 's/^ *//g' | sed 's/ *$//g'`
+
+
+if [ $ACC = "admin" ] || [ $ACC = "wiki" ] || [ $ACC = "galsync" ] || [ $ACC = "ham" ] || [ $ACC = "spam" ]; then
+    echo "Não é possivel mover contas de sistema!"
+    exit 255
+else
+    echo "createAccount $TEMPACCOUNT XXXccc123wQ displayName '$displayName' givenName '$givenName' sn '$sn' initials '$initials' zimbraPasswordMustChange FALSE zimbraMailHost $SERVER2" >> $NAMA_FILE
+
+    pos2=`expr index "$TEMPACCOUNT" @`
+    TEMPUSER=${TEMPACCOUNT:0:pos2-1}
+    dn2="${dn/$ACCOUNT/$TEMPUSER}"
+    echo "$dn2
+changetype: modify
+replace: userPassword
+userPassword: $userPassword
+" >> $LDIF_FILE
+    echo "Adding account $NAME"
+fi
+
+
+if [ -f $NAMA_FILE ];
+then
+    if [ -f $LDIF_FILE ];
+        then
+            zmprov < $NAMA_FILE
+            ldapmodify -f $LDIF_FILE -x -H $LDAP_MASTER_URL -D cn=config -w $ZIMBRA_LDAP_PASSWORD
+        else
+            echo "Erro, o arquivo $LDIF_FILE não existe."
+            exit 255
+        fi
+else
+    echo "Erro, o arquivo $NAMA_FILE não existe."
+    exit 255
+fi
+
+echo "Conta temporária criada."
+
+echo "A iniciar transferência."
+
+echo "A mover a conta $ACCOUNT1 com origem em $SERVER1"
+ZMBOX=/opt/zimbra/bin/zmmailbox
+DATE=`date +"%Y%m%d%H%M%S"`
+$ZMBOX -z -m $ACCOUNT getRestURL "//?fmt=tgz" > $TEMPDIR/$ACCOUNT1.$DATE.tar.gz
+
+echo "A restaurar os dados da conta $TEMPACCOUNT no servidor $SERVER2"
+$ZMBOX -z -m $TEMPACCOUNT postRestURL "//?fmt=tgz&resolve=reset" $TEMPDIR/$ACCOUNT1.$DATE.tar.gz
+
+echo "A renomear a conta antigao para old_$ACCOUNT1..."
+# Alteração do nome da conta antiga
+zmprov renameAccount $ACCOUNT1 old_$ACCOUNT1
+
+echo "A fechar a conta antiga, old_$ACCOUNT1..."
+zmprov ma old_$ACCOUNT1  zimbraAccountStatus closed
+
+echo "A renomear a conta $ACCOUNT1..."
+# Renomear conta
+zmprov renameAccount $TEMPACCOUNT $ACCOUNT1
+
+echo "Done."
+exit

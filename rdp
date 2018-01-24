@@ -1,0 +1,2 @@
+#!/bin/bash
+xfreerdp --ignore-certificate +clipboard +drives /u:sergio.cardoso /p:******** /v:$1 /size:1920x1050 /drive:/ &
