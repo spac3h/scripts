@@ -2,7 +2,7 @@
 import re
 import sys
 
-email = 'comunicacao@programaescolhas.pt'
+email = 'comunicacao@********.pt'
 messagelist = [ ];
 
 with open("/var/log/maillog",'r') as mails:
