@@ -11,6 +11,6 @@ for file in *.crt;do
 	outfile=${file%%.crt}$datetoday.pem
 	openssl x509 -inform der -in $file -out $outfile
 	rm $file
-	scp $outfile root@fe01prdcrt:/opt/certificados/$location/
+	scp $outfile root@host:/opt/certificados/$location/
 done
 
